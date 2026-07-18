@@ -1,0 +1,5 @@
+[project]
+name = "web"
+version = "0.1.0"
+description = "Batteries-included HTTP: routing helpers, JSON/HTML responses, safe static files, request parsing — spawn-per-request concurrency"
+entry = "src/web.wyn"

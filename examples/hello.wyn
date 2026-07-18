@@ -1,0 +1,35 @@
+// The web package in ~30 lines: HTML page, JSON API with query params,
+// POST echo, 404 — one spawned handler per request.
+//
+//   wyn run examples/hello.wyn      (then: curl localhost:8080)
+import web
+
+fn handle(req: string) {
+    if web.is(req, "GET", "/") == 1 {
+        var body = "<h1>Hello from Wyn</h1><p>Try <a href=/api/greet?name=dragon><code>/api/greet?name=dragon</code></a> or <code>POST /echo</code>.</p>"
+        web.html(req, 200, web.page("Hello", body, ""))
+    } else if web.is(req, "GET", "/api/greet") == 1 {
+        var name = web.param(req, "name")
+        if name.len() == 0 { name = "world" }
+        var safe = web.json_escape(name)
+        var out = "{\"greeting\":\"hello, "
+        out = out + safe
+        out = out + "\"}"
+        web.json(req, 200, out)
+    } else if web.is(req, "POST", "/echo") == 1 {
+        web.text(req, 200, web.body(req))
+    } else {
+        web.not_found(req)
+    }
+}
+
+fn main() {
+    var server = web.listen(8080)
+    println("listening on http://localhost:8080")
+    while true {
+        var req = web.accept(server)
+        if web.fd(req) > 0 {
+            spawn handle(req)
+        }
+    }
+}

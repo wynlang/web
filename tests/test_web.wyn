@@ -1,0 +1,46 @@
+// Unit tests for the pure parts of the web package: request parsing,
+// escaping, MIME mapping, page building. Server/response paths are covered
+// by examples/hello.wyn (they need a live socket).
+import web
+
+fn main() {
+    Test.init("web")
+
+    // The packed request format is "METHOD|PATH|BODY|FD".
+    var req = "GET|/items?page=2&sort=name|body-bytes|7"
+    Test.assert_eq_str(web.method(req), "GET", "method")
+    Test.assert_eq_str(web.path(req), "/items", "path strips query")
+    Test.assert_eq_str(web.query(req), "page=2&sort=name", "query string")
+    Test.assert_eq_str(web.param(req, "page"), "2", "param first")
+    Test.assert_eq_str(web.param(req, "sort"), "name", "param second")
+    Test.assert_eq_str(web.param(req, "missing"), "", "param absent")
+    Test.assert_eq_str(web.body(req), "body-bytes", "body")
+    Test.assert_eq_int(web.fd(req), 7, "fd")
+
+    var plain = "POST|/users|{}|3"
+    Test.assert_eq_str(web.path(plain), "/users", "path without query")
+    Test.assert_eq_str(web.query(plain), "", "empty query")
+    Test.assert(web.is(plain, "POST", "/users") == 1, "is: match")
+    Test.assert(web.is(plain, "GET", "/users") == 0, "is: wrong method")
+    Test.assert(web.is(plain, "POST", "/other") == 0, "is: wrong path")
+    var st = "GET|/static/css/site.css||9"
+    Test.assert(web.is_under(st, "GET", "/static/") == 1, "is_under: match")
+    Test.assert(web.is_under(st, "GET", "/api/") == 0, "is_under: no match")
+
+    // Escaping
+    Test.assert_eq_str(web.escape("<b>&\"x\"</b>"), "&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;", "html escape")
+    Test.assert_eq_str(web.json_escape("a\"b\\c"), "a\\\"b\\\\c", "json escape")
+
+    // MIME
+    Test.assert_eq_str(web.mime_type("a/site.css"), "text/css", "mime css")
+    Test.assert_eq_str(web.mime_type("x.svg"), "image/svg+xml", "mime svg")
+    Test.assert_eq_str(web.mime_type("no-ext"), "application/octet-stream", "mime fallback")
+
+    // Page builder escapes the title and embeds the body raw
+    var pg = web.page("A<B", "<h1>ok</h1>", "")
+    Test.assert(pg.contains("A&lt;B") == 1, "page escapes title")
+    Test.assert(pg.contains("<h1>ok</h1>") == 1, "page embeds body")
+    Test.assert(pg.starts_with("<!DOCTYPE html>") == 1, "page doctype")
+
+    Test.summary()
+}

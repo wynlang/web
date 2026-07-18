@@ -1,0 +1,222 @@
+// web — batteries-included HTTP for Wyn.
+//
+// A thin, obvious layer over the native Http/Web builtins: parse a request
+// once, respond with the right helper, serve static files safely, and build
+// HTML/JSON without ceremony. Concurrency comes from the language: call
+// `spawn handle(...)` per request and every handler runs on the coroutine
+// scheduler.
+//
+//   var server = web.listen(8080)
+//   while true {
+//       var req = web.accept(server)
+//       spawn handle(req)
+//   }
+//
+//   fn handle(req: string) {
+//       var path = web.path(req)
+//       if web.is(req, "GET", "/") { web.html(req, 200, "<h1>hi</h1>") }
+//       else { web.not_found(req) }
+//   }
+//
+// DESIGN NOTE (compiler limitation, same as the tui package): free functions
+// over primitive types only — structs/enums defined in one module miscompile
+// when used from another (POST_RELEASE 9a). The request is therefore carried
+// as the runtime's packed "METHOD|PATH|BODY|FD" string; every accessor parses
+// what it needs. When cross-module structs land, this grows a real Request
+// type without breaking the function surface.
+
+// ---- server lifecycle -------------------------------------------------------
+
+// Start listening. Returns the server handle.
+pub fn listen(port: int) -> int {
+    return Http.serve(port)
+}
+
+// Block until the next request. Returns the packed request string
+// ("METHOD|PATH|BODY|FD"); hand it to `spawn your_handler(req)`.
+pub fn accept(server: int) -> string {
+    return Http.accept(server)
+}
+
+// ---- request accessors ------------------------------------------------------
+
+pub fn method(req: string) -> string { return req.split_at("|", 0) }
+pub fn body(req: string) -> string { return req.split_at("|", 2) }
+pub fn fd(req: string) -> int { return req.split_at("|", 3).to_int() }
+
+// Internal: sibling calls to a function named `path` miscompile (imported-
+// module codegen drops the module prefix for that name — compiler bug, filed
+// 2026-07-18). All internal callers use req_path; `path` is the public name.
+fn req_path(req: string) -> string {
+    var full = req.split_at("|", 1)
+    var q = full.index_of("?")
+    if q >= 0 { return full.substring(0, q) }
+    return full
+}
+
+// Path WITHOUT the query string: path("GET|/items?x=1|...") == "/items".
+pub fn path(req: string) -> string {
+    return req_path(req)
+}
+
+// The raw query string ("" when none): query of "/items?x=1&y=2" is "x=1&y=2".
+pub fn query(req: string) -> string {
+    var full = req.split_at("|", 1)
+    var q = full.index_of("?")
+    if q >= 0 { return full.substring(q + 1, full.len()) }
+    return ""
+}
+
+// One query parameter by name ("" when absent): param(req, "x") on ?x=1 is "1".
+// (Index loop, not for-in: a for-in loop variable inside an IMPORTED module
+// function miscompiles — the codegen prefixes the declaration but not the
+// uses. Compiler bug, filed 2026-07-18.)
+pub fn param(req: string, name: string) -> string {
+    var qs = query(req)
+    if qs.len() == 0 { return "" }
+    var pairs = qs.split("&")
+    var n = pairs.len()
+    for i in 0..n {
+        var pair = pairs[i]
+        var eq = pair.index_of("=")
+        if eq >= 0 {
+            if pair.substring(0, eq) == name {
+                return pair.substring(eq + 1, pair.len())
+            }
+        } else if pair == name {
+            return ""
+        }
+    }
+    return ""
+}
+
+// Method+path match in one call: web.is(req, "GET", "/items").
+pub fn is(req: string, m: string, p: string) -> int {
+    if method(req) == m {
+        if req_path(req) == p { return 1 }
+    }
+    return 0
+}
+
+// Prefix match for path families: web.is_under(req, "GET", "/static/").
+pub fn is_under(req: string, m: string, prefix: string) -> int {
+    if method(req) == m {
+        if req_path(req).starts_with(prefix) { return 1 }
+    }
+    return 0
+}
+
+// ---- responses ---------------------------------------------------------------
+
+pub fn html(req: string, status: int, content: string) {
+    Http.respond(fd(req), status, "text/html; charset=utf-8", content)
+}
+
+pub fn json(req: string, status: int, content: string) {
+    Http.respond(fd(req), status, "application/json", content)
+}
+
+pub fn text(req: string, status: int, content: string) {
+    Http.respond(fd(req), status, "text/plain; charset=utf-8", content)
+}
+
+pub fn not_found(req: string) {
+    Http.respond(fd(req), 404, "application/json", "{\"error\":\"not found\"}")
+}
+
+pub fn method_not_allowed(req: string) {
+    Http.respond(fd(req), 405, "application/json", "{\"error\":\"method not allowed\"}")
+}
+
+pub fn bad_request(req: string, message: string) {
+    var safe = json_escape(message)
+    var out = "{\"error\":\""
+    out = out + safe
+    out = out + "\"}"
+    Http.respond(fd(req), 400, "application/json", out)
+}
+
+pub fn redirect(req: string, location: string) {
+    Http.respond(fd(req), 302, "text/html", "<meta http-equiv=refresh content=\"0;url=${location}\">")
+}
+
+// ---- static files -------------------------------------------------------------
+
+// MIME type from a file path's extension (fallback: octet-stream).
+pub fn mime_type(p: string) -> string {
+    if p.ends_with(".html") { return "text/html; charset=utf-8" }
+    if p.ends_with(".css") { return "text/css" }
+    if p.ends_with(".js") { return "application/javascript" }
+    if p.ends_with(".json") { return "application/json" }
+    if p.ends_with(".png") { return "image/png" }
+    if p.ends_with(".jpg") { return "image/jpeg" }
+    if p.ends_with(".jpeg") { return "image/jpeg" }
+    if p.ends_with(".gif") { return "image/gif" }
+    if p.ends_with(".svg") { return "image/svg+xml" }
+    if p.ends_with(".ico") { return "image/x-icon" }
+    if p.ends_with(".txt") { return "text/plain; charset=utf-8" }
+    if p.ends_with(".pdf") { return "application/pdf" }
+    if p.ends_with(".woff2") { return "font/woff2" }
+    return "application/octet-stream"
+}
+
+// Serve a file from `dir` for a request under `prefix`. Traversal-safe: any
+// path containing ".." is rejected before touching the filesystem.
+// (`dir`, not `root` — `root` is a keyword, reserved by `import root.…`.)
+//   if web.is_under(req, "GET", "/static/") { web.serve_static(req, "/static/", "public") }
+// (if/else instead of early `return`: a bare return in a void imported-module
+// function emits non-void C — compiler bug, same family as the ones above.)
+pub fn serve_static(req: string, prefix: string, dir: string) {
+    var p = req_path(req)
+    if p.contains("..") {
+        Http.respond(fd(req), 403, "application/json", "{\"error\":\"forbidden\"}")
+    } else {
+        var rel = p.substring(prefix.len(), p.len())
+        if rel.len() == 0 { rel = "index.html" }
+        var full = "${dir}/${rel}"
+        if File.exists(full) == 0 {
+            not_found(req)
+        } else {
+            var content = File.read(full)
+            Http.respond(fd(req), 200, mime_type(full), content)
+        }
+    }
+}
+
+// ---- HTML & JSON building ------------------------------------------------------
+
+// Minimal safe HTML escape for user-supplied text placed into HTML.
+pub fn escape(s: string) -> string {
+    var out = s.replace_all("&", "&amp;")
+    out = out.replace_all("<", "&lt;")
+    out = out.replace_all(">", "&gt;")
+    out = out.replace_all("\"", "&quot;")
+    return out
+}
+
+// Escape a string for inclusion inside a JSON string literal.
+pub fn json_escape(s: string) -> string {
+    var out = s.replace_all("\\", "\\\\")
+    out = out.replace_all("\"", "\\\"")
+    out = out.replace_all("\n", "\\n")
+    out = out.replace_all("\r", "\\r")
+    out = out.replace_all("\t", "\\t")
+    return out
+}
+
+// A complete HTML5 page with a small clean default style. Pass extra_head=""
+// unless you need meta tags / stylesheets.
+// (Concat, not ${} interpolation: interpolating a variable that holds a
+// sibling-call result miscompiles in imported modules — compiler bug, same
+// 2026-07-18 family. Concat is verified correct.)
+pub fn page(title: string, body_html: string, extra_head: string) -> string {
+    var t = escape(title)
+    var out = "<!DOCTYPE html><html><head><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>"
+    out = out + t
+    out = out + "</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui,sans-serif;line-height:1.6;color:#1a2332;background:#fafafa}main{max-width:760px;margin:40px auto;padding:0 20px}h1,h2,h3{margin:0.8em 0 0.4em}p{margin:0.5em 0}a{color:#0969da}code{background:#eee;padding:2px 6px;border-radius:4px;font-size:0.9em}</style>"
+    out = out + extra_head
+    out = out + "</head><body><main>"
+    out = out + body_html
+    out = out + "</main></body></html>"
+    return out
+}

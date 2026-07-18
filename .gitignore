@@ -1,0 +1,4 @@
+*.wyn.c
+*.wyn.out
+*.out
+wyn_cc_err.txt
