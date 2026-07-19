@@ -32,10 +32,18 @@ pub fn listen(port: int) -> int {
     return Http.serve(port)
 }
 
-// Block until the next request. Returns the packed request string
-// ("METHOD|PATH|BODY|FD"); hand it to `spawn your_handler(req)`.
-pub fn accept(server: int) -> string {
-    return Http.accept(server)
+// Block until the next connection. Returns the client fd; hand it to
+// `spawn your_handler(fd)`. Accept-only — the request read happens in the
+// handler via read_request, so one slow client can never stall the others.
+pub fn accept(server: int) -> int {
+    return Http.accept_fd(server)
+}
+
+// Read + parse one request from an accepted connection (inside your spawned
+// handler — the read parks cooperatively on the scheduler). Returns the packed
+// request string, or "" if the client vanished.
+pub fn read_request(conn: int) -> string {
+    return Http.read_request(conn)
 }
 
 // ---- request accessors ------------------------------------------------------
