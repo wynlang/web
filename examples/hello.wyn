@@ -5,8 +5,16 @@
 import web
 
 fn handle(conn: int) {
-    var req = web.read_request(conn)
-    if req.len() == 0 { return }
+    // Keep-alive loop: serve requests on this connection until the client
+    // closes (read_request returns "") — one coroutine per CONNECTION.
+    while true {
+        var req = web.read_request(conn)
+        if req.len() == 0 { return }
+        route(req)
+    }
+}
+
+fn route(req: string) {
     if web.is(req, "GET", "/") == 1 {
         var body = "<h1>Hello from Wyn</h1><p>Try <a href=/api/greet?name=dragon><code>/api/greet?name=dragon</code></a> or <code>POST /echo</code>.</p>"
         web.html(req, 200, web.page("Hello", body, ""))

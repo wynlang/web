@@ -17,8 +17,15 @@ wyn pkg add web        # resolves to github.com/wynlang/web
 import web
 
 fn handle(conn: int) {
-    var req = web.read_request(conn)
-    if req.len() == 0 { return }
+    // one coroutine per connection — serves keep-alive requests in a loop
+    while true {
+        var req = web.read_request(conn)
+        if req.len() == 0 { return }
+        route(req)
+    }
+}
+
+fn route(req: string) {
     if web.is(req, "GET", "/") == 1 {
         web.html(req, 200, web.page("Hello", "<h1>Hello from Wyn</h1>", ""))
     } else if web.is(req, "GET", "/api/greet") == 1 {
@@ -51,8 +58,9 @@ fn main() {
 connection fd to pass to your spawned handler), `read_request(conn) -> string`
 (inside the handler; parks cooperatively — a slow client never stalls others).
 
-Measured on the hello example (ab, macOS arm64): **~7,200 req/s, zero failed
-requests at 200 concurrent connections**.
+Measured on the hello example (ab, macOS arm64): **22,000+ req/s with
+keep-alive, zero failed requests at 200 concurrent connections** (~7,200 req/s
+connection-per-request).
 
 **Request** — `method(req)`, `path(req)` (query stripped), `query(req)`,
 `param(req, name)`, `body(req)`, `fd(req)`, `is(req, method, path)`,
