@@ -1,4 +1,4 @@
-// web — batteries-included HTTP for Wyn.
+// web - batteries-included HTTP for Wyn.
 //
 // A thin, obvious layer over the native Http/Web builtins: parse a request
 // once, respond with the right helper, serve static files safely, and build
@@ -19,7 +19,7 @@
 //   }
 //
 // DESIGN NOTE (compiler limitation, same as the tui package): free functions
-// over primitive types only — structs/enums defined in one module miscompile
+// over primitive types only - structs/enums defined in one module miscompile
 // when used from another (POST_RELEASE 9a). The request is therefore carried
 // as the runtime's packed "METHOD|PATH|BODY|FD" string; every accessor parses
 // what it needs. When cross-module structs land, this grows a real Request
@@ -33,14 +33,14 @@ pub fn listen(port: int) -> int {
 }
 
 // Block until the next connection. Returns the client fd; hand it to
-// `spawn your_handler(fd)`. Accept-only — the request read happens in the
+// `spawn your_handler(fd)`. Accept-only - the request read happens in the
 // handler via read_request, so one slow client can never stall the others.
 pub fn accept(server: int) -> int {
     return Http.accept_fd(server)
 }
 
 // Read + parse one request from an accepted connection (inside your spawned
-// handler — the read parks cooperatively on the scheduler). Returns the packed
+// handler - the read parks cooperatively on the scheduler). Returns the packed
 // request string, or "" if the client vanished.
 pub fn read_request(conn: int) -> string {
     return Http.read_request(conn)
@@ -155,7 +155,7 @@ pub fn mime_type(p: string) -> string {
 
 // Serve a file from `dir` for a request under `prefix`. Traversal-safe: any
 // path containing ".." is rejected before touching the filesystem.
-// (`dir`, not `root` — `root` is a keyword, reserved by `import root.…`.)
+// (`dir`, not `root` - `root` is a keyword, reserved by `import root.…`.)
 //   if web.is_under(req, "GET", "/static/") { web.serve_static(req, "/static/", "public") }
 pub fn serve_static(req: string, prefix: string, dir: string) {
     var p = path(req)

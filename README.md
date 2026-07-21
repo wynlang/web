@@ -17,7 +17,7 @@ wyn pkg add web        # resolves to github.com/wynlang/web
 import web
 
 fn handle(conn: int) {
-    // one coroutine per connection — serves keep-alive requests in a loop
+    // one coroutine per connection - serves keep-alive requests in a loop
     while true {
         var req = web.read_request(conn)
         if req.len() == 0 { return }
@@ -54,26 +54,26 @@ fn main() {
 
 ## API
 
-**Server** — `listen(port) -> int`, `accept(server) -> int` (blocks; returns the
+**Server** - `listen(port) -> int`, `accept(server) -> int` (blocks; returns the
 connection fd to pass to your spawned handler), `read_request(conn) -> string`
-(inside the handler; parks cooperatively — a slow client never stalls others).
+(inside the handler; parks cooperatively - a slow client never stalls others).
 
 Measured on the hello example (ab, macOS arm64): **22,000+ req/s with
 keep-alive, zero failed requests at 200 concurrent connections** (~7,200 req/s
 connection-per-request).
 
-**Request** — `method(req)`, `path(req)` (query stripped), `query(req)`,
+**Request** - `method(req)`, `path(req)` (query stripped), `query(req)`,
 `param(req, name)`, `body(req)`, `fd(req)`, `is(req, method, path)`,
 `is_under(req, method, prefix)`.
 
-**Responses** — `html/json/text(req, status, content)`, `not_found(req)`,
+**Responses** - `html/json/text(req, status, content)`, `not_found(req)`,
 `method_not_allowed(req)`, `bad_request(req, message)` (message JSON-escaped),
 `redirect(req, location)`.
 
-**Static files** — `serve_static(req, prefix, dir)`: traversal-safe (`..`
+**Static files** - `serve_static(req, prefix, dir)`: traversal-safe (`..`
 rejected), MIME from extension via `mime_type(path)`, `index.html` default.
 
-**Building output** — `page(title, body_html, extra_head)` (complete styled
+**Building output** - `page(title, body_html, extra_head)` (complete styled
 HTML5 page; title escaped), `escape(s)` (HTML), `json_escape(s)`.
 
 ## Test

@@ -1,12 +1,12 @@
 // The web package in ~30 lines: HTML page, JSON API with query params,
-// POST echo, 404 — one spawned handler per request.
+// POST echo, 404 - one spawned handler per request.
 //
 //   wyn run examples/hello.wyn      (then: curl localhost:8080)
 import web
 
 fn handle(conn: int) {
     // Keep-alive loop: serve requests on this connection until the client
-    // closes (read_request returns "") — one coroutine per CONNECTION.
+    // closes (read_request returns "") - one coroutine per CONNECTION.
     while true {
         var req = web.read_request(conn)
         if req.len() == 0 { return }
