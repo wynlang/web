@@ -15,7 +15,22 @@ fn main() {
     Test.assert_eq_str(web.param(req, "sort"), "name", "param second")
     Test.assert_eq_str(web.param(req, "missing"), "", "param absent")
     Test.assert_eq_str(web.body(req), "body-bytes", "body")
-    Test.assert_eq_int(web.fd(req), 7, "fd")
+    // fd() AUTHENTICATES the record's final field (issue #467): it is a capability
+    // token this process minted, not a descriptor the string may name. A hand-built
+    // record carries no such token, so -1 - "I do not recognise this" - is the
+    // correct answer here, and the old `7` was exactly the behaviour that let a
+    // remote client choose a file descriptor. The live path is covered by
+    // examples/hello.wyn, which gets its record from Http.accept.
+    Test.assert_eq_int(web.fd(req), -1, "fd: an unminted token is refused")
+
+    // #486: a body containing a pipe must not shift the fields. Splitting the record
+    // by index made this body "a" (truncated at the pipe) and the token "b", whose
+    // .to_int() PANICKED the server - `curl -d 'a|b'` was enough. Both accessors
+    // resolve the final field from the right, so the body survives whole.
+    var piped = "POST|/submit|{\"note\":\"a|b\"}|11"
+    Test.assert_eq_str(web.body(piped), "{\"note\":\"a|b\"}", "body with a pipe survives intact")
+    Test.assert_eq_str(web.path(piped), "/submit", "a pipe in the body does not shift the path")
+    Test.assert_eq_str(web.method(piped), "POST", "nor the method")
 
     var plain = "POST|/users|{}|3"
     Test.assert_eq_str(web.path(plain), "/users", "path without query")

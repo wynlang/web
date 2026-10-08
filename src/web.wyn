@@ -46,15 +46,53 @@ pub fn read_request(conn: int) -> string {
     return Http.read_request(conn)
 }
 
-// ---- request accessors ------------------------------------------------------
+// Release a connection. Only needed by a ONE-SHOT handler - one that answers a
+// single request and returns instead of looping on read_request. The looping
+// form (see the module header and examples/hello.wyn) closes as part of ending
+// its loop, so it must NOT call this; the recommended shape is the loop, because
+// it is also the only one that can serve HTTP/1.1 keep-alive.
+//
+//   fn handle(conn: int) {          // one-shot: close when you are done
+//       var req = web.read_request(conn)
+//       if req.len() == 0 { return }
+//       web.text(req, 200, "hi")
+//       web.close(conn)
+//   }
+pub fn close(conn: int) {
+    Http.close_client(conn)
+}
 
-pub fn method(req: string) -> string { return req.split_at("|", 0) }
-pub fn body(req: string) -> string { return req.split_at("|", 2) }
-pub fn fd(req: string) -> int { return req.split_at("|", 3).to_int() }
+// ---- request accessors ------------------------------------------------------
+//
+// These delegate to the runtime's own accessors rather than splitting the packed
+// record by index, because splitting by index is UNSAFE on attacker-controlled
+// input (issue #486).
+//
+// The record is "METHOD|PATH|BODY|TOKEN", and the BODY is attacker-controlled, so
+// `split_at("|", 3)` is only the token when the body happens to contain no pipe.
+// `curl -d 'a|b'` made the record "POST|/|a|b|9", so index 3 was "b" and
+// `.to_int()` panicked - one unauthenticated request, three bytes of body, and the
+// server process was gone. `split_at("|", 2)` had the matching bug quietly: it
+// returned "a" and silently truncated the body at the first pipe, which is any
+// JSON string containing a pipe, any CSV upload, any log line.
+//
+// Http.method / Http.path / Http.req_body / Http.fd parse the SAME record, but the
+// final field is resolved from the RIGHT, so extra pipes anywhere earlier cannot
+// shift it. Measured: Http.req_body("POST|/p|a|b|9") is "a|b", intact.
+//
+// NOTE ON fd: Http.fd AUTHENTICATES. Field 3 is a capability token this process
+// minted (issue #467), and Http.fd returns -1 for a token it does not recognise
+// instead of handing back whatever integer the string contained. So fd() on a
+// HAND-BUILT record is now -1 rather than the number in it - which is the point:
+// the old behaviour let a remote client name a file descriptor.
+
+pub fn method(req: string) -> string { return Http.method(req) }
+pub fn body(req: string) -> string { return Http.req_body(req) }
+pub fn fd(req: string) -> int { return Http.fd(req) }
 
 // Path WITHOUT the query string: path("GET|/items?x=1|...") == "/items".
 pub fn path(req: string) -> string {
-    var full = req.split_at("|", 1)
+    var full = Http.path(req)
     var q = full.index_of("?")
     if q >= 0 { return full.substring(0, q) }
     return full
@@ -62,7 +100,7 @@ pub fn path(req: string) -> string {
 
 // The raw query string ("" when none): query of "/items?x=1&y=2" is "x=1&y=2".
 pub fn query(req: string) -> string {
-    var full = req.split_at("|", 1)
+    var full = Http.path(req)
     var q = full.index_of("?")
     if q >= 0 { return full.substring(q + 1, full.len()) }
     return ""
